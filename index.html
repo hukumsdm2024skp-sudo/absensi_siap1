@@ -703,24 +703,13 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
             <button class="btn-primary" onclick="saveCloudFromProfil()" style="flex:1">💾 Simpan &amp; Hubungkan Cloud</button>
             <button class="btn-outline" onclick="copyRelayLink()" id="btn-copy-relay" style="flex:1;display:none">🔗 Salin Link Akses</button>
           </div>
-          <div id="download-html-wrap" style="display:none;margin-top:.75rem">
-            <button class="btn-primary full" onclick="downloadUpdatedHTML()" style="background:linear-gradient(135deg,#2e7d32,#43a047)">
-              📥 Download index.html (sudah ter-konfigurasi) → Upload ulang ke Vercel/GitHub
-            </button>
-            <small class="field-hint" style="margin-top:.4rem;display:block;color:#2e7d32;font-weight:700">
-              ⬆ Setelah download, replace file index.html di GitHub/Vercel dengan file ini. Semua browser akan otomatis terhubung cloud tanpa setup apapun.
-            </small>
-          </div>
           <div id="cloud-profil-msg" class="absen-msg hidden mt1"></div>
           <div class="mt1" style="background:#f0f7ff;border-radius:8px;padding:.75rem;font-size:.75rem;color:#1565c0;line-height:1.7">
             <b>💡 Cara kerja:</b><br>
             1. Admin isi API Key &amp; Bin ID → klik Simpan<br>
-            2. Isi Google Apps Script URL jika ingin upload otomatis ke Drive<br>
+            2. Sistem menyimpan konfigurasi ke cloud<br>
             3. Pegawai buka link aplikasi → langsung login tanpa setup apapun<br>
-            4. Klik "Salin Link Akses" → bagikan ke pegawai agar otomatis terhubung cloud<br>
-            <br>
-            <b>⚠️ Penting untuk Link Akses aman:</b><br>
-            Di <a href="https://jsonbin.io" target="_blank" style="color:#1565c0">jsonbin.io</a>, buka pengaturan Bin → aktifkan <b>Public Read</b> agar link yang dibagikan tidak mengandung API Key (lebih aman, tidak ditandai berbahaya oleh browser)
+            4. Atau bagikan "Link Akses" ke pegawai agar otomatis terhubung
           </div>
         </div>
       </div>
@@ -797,24 +786,18 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
 // ═══════════════════════════════════════════════════════════════════
 
 // ── CLOUD CONFIG ──
-// BOOTSTRAP_BIN_ID: diisi otomatis saat admin pertama kali simpan konfigurasi.
-// Dengan ini, SEMUA browser yang membuka file ini langsung tahu Bin ID → bisa auto-connect.
-// Admin hanya perlu setup SEKALI. Pegawai tidak perlu setup apapun.
-// Nilai ini dicek dari: localStorage → sessionStorage → meta tag di DOM
-let BOOTSTRAP_BIN_ID = (()=>{
-  try {
-    return localStorage.getItem('siap_bootstrap_bin')
-        || sessionStorage.getItem('siap_bootstrap_bin')
-        || (document.getElementById('siap-bootstrap-meta')||{}).content
-        || '';
-  } catch(e) { return ''; }
-})();
+// Konfigurasi cloud ditanamkan langsung agar tidak perlu setup ulang saat deploy
+const _DEFAULT_APIKEY = '$2a$10$va7y7NPsC0XxCJJ6jcvN0ezJ1OqE8K0VF0CQRHQ9ttsO1HMCFyrFe'; // ← ganti ini
+const _DEFAULT_BINID  = '69def77e36566621a8b4871d'; // ← ganti ini
 
 const CLOUD = {
-  get apiKey() { return localStorage.getItem('siap_jb_apikey') || ''; },
-  get binId()  { return localStorage.getItem('siap_jb_binid') || BOOTSTRAP_BIN_ID || ''; },
-  get enabled(){ return !!(this.apiKey && this.binId); },
-  get hasBootstrap() { return !!(BOOTSTRAP_BIN_ID || localStorage.getItem('siap_bootstrap_bin')); },
+  get apiKey() { 
+    return localStorage.getItem('siap_jb_apikey') || _DEFAULT_APIKEY; 
+  },
+  get binId() { 
+    return localStorage.getItem('siap_jb_binid') || _DEFAULT_BINID; 
+  },
+  get enabled() { return !!(this.apiKey && this.binId); },
   BASE: 'https://api.jsonbin.io/v3/b'
 };
 
@@ -937,16 +920,6 @@ function syncShow(msg, type='loading') {
 
 // ── CLOUD SETUP UI ──
 function showCloudSetup() {
-  // Hanya tampilkan panel setup jika tidak ada bootstrap bin
-  // (berarti benar-benar setup pertama kali)
-  const hasBin = BOOTSTRAP_BIN_ID || localStorage.getItem('siap_bootstrap_bin');
-  if (hasBin) {
-    // Sudah ada bootstrap → jangan tampilkan setup, langsung tampilkan login
-    showToast('⚙️ Cloud sudah dikonfigurasi. Masukkan password untuk mengubah.');
-    document.getElementById('cloud-setup-panel').style.display = 'none';
-    document.getElementById('login-card').style.display = 'block';
-    return;
-  }
   document.getElementById('cloud-setup-panel').style.display = 'block';
   document.getElementById('login-card').style.display = 'none';
 }
@@ -983,12 +956,8 @@ async function saveCloudConfig() {
     await cloudWrite(testRead);
     _cloudCache = testRead;
   }
-  // Tandai setup sudah selesai di browser ini + simpan bootstrap bin
+  // Tandai setup sudah selesai di browser ini
   LDB.set('cloud_setup_done', '1');
-  localStorage.setItem('siap_bootstrap_bin', bin);
-  BOOTSTRAP_BIN_ID = bin;
-  // Inject Bin ID ke dalam HTML agar semua browser yang buka file ini otomatis connect
-  injectBootstrapBin(bin);
   document.getElementById('cloud-setup-panel').style.display = 'none';
   document.getElementById('login-card').style.display = 'block';
   updateCloudStatusUI();
@@ -1015,17 +984,12 @@ function updateCloudStatusUI() {
     bar.className = 'cloud-status-bar online';
     icon.textContent = '☁️';
     text.textContent = 'Cloud terhubung – data tersinkronisasi';
-    if (btnCloud) { btnCloud.textContent = '⚙ Ubah'; btnCloud.style.display = 'none'; } // Sembunyikan tombol ubah untuk pegawai
-  } else if (BOOTSTRAP_BIN_ID || localStorage.getItem('siap_bootstrap_bin')) {
-    bar.className = 'cloud-status-bar online';
-    icon.textContent = '🔄';
-    text.textContent = 'Menghubungkan ke cloud...';
-    if (btnCloud) btnCloud.style.display = 'none';
+    if (btnCloud) btnCloud.textContent = '⚙ Ubah';
   } else {
     bar.className = 'cloud-status-bar local';
     icon.textContent = '💻';
     text.textContent = 'Mode Lokal – data hanya di browser ini';
-    if (btnCloud) { btnCloud.textContent = '⚙ Atur Cloud'; btnCloud.style.display = ''; }
+    if (btnCloud) btnCloud.textContent = '⚙ Atur Cloud';
   }
 }
 
@@ -1039,79 +1003,13 @@ function resetCloudSetup() {
   showToast('🔧 Silakan masukkan konfigurasi cloud baru');
 }
 
-// Simpan Bin ID ke localStorage dengan key khusus agar semua tab/reload bisa auto-bootstrap
-// Juga simpan ke sessionStorage sebagai fallback
-function injectBootstrapBin(binId) {
-  if (!binId) return;
-  try {
-    localStorage.setItem('siap_bootstrap_bin', binId);
-    sessionStorage.setItem('siap_bootstrap_bin', binId);
-    BOOTSTRAP_BIN_ID = binId;
-    // Simpan juga ke sebuah meta tag di head agar dapat dibaca lintas tab
-    let metaTag = document.getElementById('siap-bootstrap-meta');
-    if (!metaTag) {
-      metaTag = document.createElement('meta');
-      metaTag.id = 'siap-bootstrap-meta';
-      metaTag.name = 'siap-bootstrap';
-      document.head.appendChild(metaTag);
-    }
-    metaTag.content = binId;
-    console.log('[SIAP] Bootstrap Bin ID tersimpan:', binId);
-    // Tampilkan tombol download HTML
-    const wrap = document.getElementById('download-html-wrap');
-    if (wrap) wrap.style.display = '';
-  } catch(e) { console.warn('injectBootstrapBin error:', e); }
-}
-
-// Download salinan index.html yang sudah ter-embed Bin ID
-// Admin upload file ini ke GitHub/Vercel → semua browser otomatis connect tanpa setup
-async function downloadUpdatedHTML() {
-  const binId = BOOTSTRAP_BIN_ID || localStorage.getItem('siap_bootstrap_bin');
-  if (!binId) { showToast('⚠️ Simpan konfigurasi cloud terlebih dahulu'); return; }
-  showToast('⏳ Menyiapkan file index.html...');
-  try {
-    // Ambil source HTML halaman ini
-    const resp = await fetch(window.location.href);
-    let htmlSrc = await resp.text();
-    // Replace placeholder BOOTSTRAP_BIN_ID dengan nilai aktual
-    // Ganti baris: let BOOTSTRAP_BIN_ID = (...)()?; dengan nilai hardcoded
-    const oldBootstrap = /let BOOTSTRAP_BIN_ID = \(\(\)=>\{[\s\S]*?\}\)\(\);/;
-    const newBootstrap = `let BOOTSTRAP_BIN_ID = '${binId}'; // AUTO-CONFIGURED`;
-    if (oldBootstrap.test(htmlSrc)) {
-      htmlSrc = htmlSrc.replace(oldBootstrap, newBootstrap);
-    } else {
-      // Fallback: inject setelah tag <script>
-      htmlSrc = htmlSrc.replace('<script>', '<script>
-let _INJECTED_BIN = "' + binId + '"; localStorage.setItem("siap_bootstrap_bin", _INJECTED_BIN);
-');
-    }
-    const blob = new Blob([htmlSrc], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'index.html'; a.click();
-    URL.revokeObjectURL(url);
-    showToast('✅ File index.html berhasil didownload! Upload ke GitHub/Vercel untuk deploy ulang.');
-  } catch(e) {
-    // Jika fetch gagal (CORS dll), buat HTML minimal dengan injeksi localStorage
-    const injectScript = `<script>
-// AUTO-BOOTSTRAP: diinjeksi otomatis oleh SIAP KPU
-(function(){
-  var _bin = '${binId}';
-  if(_bin){ localStorage.setItem('siap_bootstrap_bin',_bin); }
-})();
-<\/script>`;
-    showToast('⚠️ Tidak bisa fetch HTML langsung. Salin Bin ID: ' + binId + ' dan tempel manual di kode.');
-    prompt('Bin ID untuk di-hardcode ke index.html (tempel di variabel BOOTSTRAP_BIN_ID):', binId);
-  }
-}
-
-// Buat link relay untuk di-share ke pegawai (hanya Bin ID, API Key diambil dari _meta cloud)
+// Buat link relay untuk di-share ke pegawai (berisi key terenkripsi)
 function copyRelayLink() {
-  if (!CLOUD.enabled) { showToast('\u26a0\ufe0f Cloud belum dikonfigurasi'); return; }
-  // Hanya embed Bin ID (bukan API Key) agar URL tidak terdeteksi sebagai berbahaya oleh Chrome
-  const url = window.location.origin + window.location.pathname + '#bin=' + CLOUD.binId;
+  if (!CLOUD.enabled) { showToast('⚠️ Cloud belum dikonfigurasi'); return; }
+  const relay = btoa(CLOUD.apiKey + '|' + CLOUD.binId);
+  const url = window.location.origin + window.location.pathname + '#cloud=' + relay;
   navigator.clipboard.writeText(url).then(()=>{
-    showToast('\u2705 Link akses berhasil disalin! Bagikan ke pegawai agar langsung terhubung cloud.');
+    showToast('✅ Link relay cloud berhasil disalin! Bagikan ke pegawai agar langsung terhubung cloud.');
   }).catch(()=>{
     prompt('Salin link berikut dan bagikan ke pegawai:', url);
   });
@@ -1184,80 +1082,12 @@ async function initDB() {
     return;
   }
 
-  // Browser baru / belum ada cloud config di localStorage
-  // Cek apakah ada BOOTSTRAP_BIN_ID yang bisa digunakan untuk auto-connect
-  const bootstrapBin = BOOTSTRAP_BIN_ID || localStorage.getItem('siap_bootstrap_bin') || '';
-  if (bootstrapBin && !CLOUD.apiKey) {
-    syncShow('🔗 Bootstrap cloud ditemukan, menghubungi server...', 'loading');
-    try {
-      // Baca data cloud menggunakan Bin ID (bin harus public read)
-      const bsResp = await fetch(`https://api.jsonbin.io/v3/b/${bootstrapBin}/latest`, {
-        headers: { 'X-Bin-Meta': 'false' }
-      });
-      if (bsResp.ok) {
-        const bsJson = await bsResp.json();
-        const bsData = bsJson.record !== undefined ? bsJson.record : bsJson;
-        if (bsData && bsData._meta && bsData._meta.cloudKey) {
-          // Dapat API Key dari _meta → inject ke localStorage
-          localStorage.setItem('siap_jb_apikey', bsData._meta.cloudKey);
-          localStorage.setItem('siap_jb_binid',  bootstrapBin);
-          localStorage.setItem('siap_bootstrap_bin', bootstrapBin);
-          LDB.set('cloud_setup_done', '1');
-          _cloudCache = bsData;
-          LDB.set('users',    bsData.users    || []);
-          LDB.set('absensi',  bsData.absensi  || []);
-          LDB.set('izincuti', bsData.izincuti || []);
-          LDB.set('dokumen',  bsData.dokumen  || []);
-          LDB.set('_meta',    bsData._meta);
-          syncShow('✅ Cloud terhubung otomatis', 'success');
-          return;
-        }
-      }
-    } catch(e) { console.warn('Bootstrap cloud gagal:', e); }
-    syncShow('⚠️ Bootstrap gagal, lanjut mode lokal', 'error');
-  }
-
   // Browser baru / belum ada cloud config → pakai data lokal dulu
   // Nanti setelah login berhasil, relay key akan di-inject otomatis dari cloud
   const existing = LDB.get('users');
   if (!existing || existing.length === 0) {
-    // Coba ambil konfigurasi cloud dari URL hash (untuk share link admin)
+    // Coba ambil relay key dari URL hash (untuk share link admin)
     const hash = window.location.hash;
-
-    // Format BARU: #bin=BINID (aman, API Key tidak ada di URL sehingga tidak trigger peringatan Chrome)
-    if (hash && hash.startsWith('#bin=')) {
-      try {
-        const binId = hash.slice(5).trim();
-        if (binId) {
-          window.location.hash = '';
-          syncShow('🔗 Link cloud ditemukan, memuat konfigurasi...', 'loading');
-          // Baca data cloud (bin harus public read agar bisa diakses tanpa API Key)
-          // API Key diambil dari _meta yang tersimpan di dalam data cloud
-          const probeResp = await fetch('https://api.jsonbin.io/v3/b/' + binId + '/latest', {
-            headers: { 'X-Bin-Meta': 'false' }
-          });
-          if (probeResp.ok) {
-            const probeJson = await probeResp.json();
-            const probeData = probeJson.record !== undefined ? probeJson.record : probeJson;
-            if (probeData && probeData._meta && probeData._meta.cloudKey) {
-              localStorage.setItem('siap_jb_apikey', probeData._meta.cloudKey);
-              localStorage.setItem('siap_jb_binid',  binId);
-              _cloudCache = probeData;
-              LDB.set('users',    probeData.users    || []);
-              LDB.set('absensi',  probeData.absensi  || []);
-              LDB.set('izincuti', probeData.izincuti || []);
-              LDB.set('dokumen',  probeData.dokumen  || []);
-              LDB.set('_meta',    probeData._meta);
-              syncShow('✅ Data cloud dimuat via link', 'success');
-              return;
-            }
-          }
-          syncShow('⚠️ Gagal membaca cloud via link', 'error');
-        }
-      } catch(e) {}
-    }
-
-    // Format LAMA: #cloud=base64(apikey|binid) — masih didukung untuk link lama
     if (hash && hash.startsWith('#cloud=')) {
       try {
         const parts = atob(hash.slice(7)).split('|');
@@ -1488,10 +1318,11 @@ async function checkSession() {
       enterApp(); return;
     }
   }
-  // Tampilkan login card
-  // Cloud setup TIDAK PERNAH ditampilkan otomatis — hanya admin via tombol "Atur Cloud"
+  // Selalu tampilkan login card langsung — TIDAK pernah auto-show cloud setup
+  // Cloud setup hanya dibuka manual oleh admin via tombol "Atur Cloud"
   document.getElementById('page-login').classList.add('active');
   updateCloudStatusUI();
+  // TIDAK ada auto-showCloudSetup() di sini
 }
 
 function enterApp() {
@@ -1998,9 +1829,6 @@ function loadCloudConfigUI() {
   if (CLOUD.enabled) {
     if (badge) { badge.textContent = '✅ Terhubung'; badge.className = 'badge badge-green'; }
     if (copyBtn) copyBtn.style.display = '';
-    // Tampilkan tombol download jika bootstrap bin sudah ada
-    const dlWrap = document.getElementById('download-html-wrap');
-    if (dlWrap && BOOTSTRAP_BIN_ID) dlWrap.style.display = '';
     // Isi field dengan key yang ada (masked)
     const apkEl = document.getElementById('profil-apikey');
     const binEl = document.getElementById('profil-binid');
@@ -2063,20 +1891,14 @@ async function saveCloudFromProfil() {
   }
   LDB.set('cloud_setup_done','1');
   LDB.set('_meta', { cloudKey: key, cloudBin: bin, gasUrl: gasUrl || (LDB.get('_meta')||{}).gasUrl || '' });
-  // Simpan bootstrap bin agar semua browser bisa auto-connect tanpa setup ulang
-  localStorage.setItem('siap_bootstrap_bin', bin);
-  BOOTSTRAP_BIN_ID = bin;
-  injectBootstrapBin(bin);
   keyEl.value = '';
-  showMsg('cloud-profil-msg','✅ Cloud terhubung! Silakan download index.html di bawah dan upload ulang ke GitHub/Vercel agar semua browser otomatis terhubung.','success');
-  showToast('☁️ Cloud terhubung! Download index.html & upload ke Vercel.');
+  showMsg('cloud-profil-msg','✅ Cloud berhasil terhubung! Pegawai bisa langsung login.','success');
+  showToast('☁️ Cloud terhubung! Konfigurasi tersimpan di cloud.');
   loadCloudConfigUI();
   updateCloudStatusUI();
-  // Tampilkan tombol relay dan tombol download
+  // Tampilkan tombol relay
   const relayBtn = document.getElementById('btn-relay-link');
   if (relayBtn) relayBtn.style.display = '';
-  const dlWrap = document.getElementById('download-html-wrap');
-  if (dlWrap) dlWrap.style.display = '';
 }
 
 // ═══ PASSWORD ═══
